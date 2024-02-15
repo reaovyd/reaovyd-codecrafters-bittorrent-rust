@@ -1,22 +1,12 @@
-use serde_json;
 use std::env;
 
 // Available if you need it!
-// use serde_bencode
+use anyhow::Result;
+use serde_bencode::{self, value::Value};
 
 #[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
-    // If encoded_value starts with a digit, it's a number
-    if encoded_value.chars().next().unwrap().is_digit(10) {
-        // Example: "5:hello" -> "hello"
-        let colon_index = encoded_value.find(':').unwrap();
-        let number_string = &encoded_value[..colon_index];
-        let number = number_string.parse::<i64>().unwrap();
-        let string = &encoded_value[colon_index + 1..colon_index + 1 + number as usize];
-        return serde_json::Value::String(string.to_string());
-    } else {
-        panic!("Unhandled encoded value: {}", encoded_value)
-    }
+fn decode_bencoded_value(encoded_value: &str) -> Result<Value> {
+    Ok(serde_bencode::from_str::<Value>(encoded_value)?)
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
@@ -27,7 +17,19 @@ fn main() {
     if command == "decode" {
         let encoded_value = &args[2];
         let decoded_value = decode_bencoded_value(encoded_value);
-        println!("{}", decoded_value.to_string());
+        if let Ok(decoded_value) = decoded_value {
+            let res = match decoded_value {
+                Value::Bytes(bytes) => String::from_utf8(bytes).unwrap(),
+                Value::Int(num) => {
+                    format!("{}", num)
+                }
+                Value::List(_val) => "brih".to_owned(),
+                Value::Dict(_map) => "map".to_owned(),
+            };
+            println!("{}", res);
+        } else {
+            eprintln!("Failed!");
+        }
     } else {
         println!("unknown command: {}", args[1])
     }
