@@ -1,7 +1,7 @@
 // Available if you need it!
 use anyhow::Result;
 use serde_bencode::{self, value::Value};
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, fmt::Display};
 use thiserror::Error;
 
 // #[allow(dead_code)]
@@ -30,12 +30,8 @@ fn main() {
 
 fn convert_value_to_string(val: Value) -> Result<String> {
     Ok(match val {
-        Value::Bytes(bytes) => {
-            format!("\"{}\"", String::from_utf8(bytes)?)
-        }
-        Value::Int(num) => {
-            format!("{}", num)
-        }
+        Value::Bytes(bytes) => String::from_utf8(bytes)?,
+        Value::Int(num) => num.to_string(),
         Value::List(lst) => {
             let mut res = Vec::new();
             for val in lst {
@@ -53,6 +49,24 @@ fn convert_value_to_string(val: Value) -> Result<String> {
         }
     })
 }
+
+// enum ScalarValue {
+//     String(String),
+//     Int(i64),
+// }
+//
+// impl Display for ScalarValue {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             ScalarValue::String(val) => {
+//                 write!(f, "{}", val)
+//             }
+//             ScalarValue::Int(val) => {
+//                 write!(f, "{val}")
+//             }
+//         }
+//     }
+// }
 
 // impl TryFrom<Value> for String {
 //     type Error = TorrentError;
