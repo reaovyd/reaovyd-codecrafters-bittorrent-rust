@@ -1,6 +1,7 @@
 // Available if you need it!
 use anyhow::Result;
 use serde_bencode::{self, value::Value};
+use serde_json::Value as SerdeJsonValue;
 use std::{collections::HashMap, env, fmt::Display};
 use thiserror::Error;
 
@@ -28,24 +29,26 @@ fn main() {
     }
 }
 
-fn convert_value_to_string(val: Value) -> Result<String> {
+fn convert_value_to_string(val: Value) -> Result<SerdeJsonValue> {
     Ok(match val {
-        Value::Bytes(bytes) => format!("{:?}", String::from_utf8(bytes)?),
-        Value::Int(num) => num.to_string(),
+        Value::Bytes(bytes) => SerdeJsonValue::String(String::from_utf8(bytes)?),
+        Value::Int(num) => SerdeJsonValue::Number(serde_json::Number::from(num)),
         Value::List(lst) => {
-            let mut res = Vec::new();
+            let mut res = SerdeJsonValue::Array(Vec::new());
             for val in lst {
                 let string = convert_value_to_string(val)?;
-                res.push(string);
+                res.as_array_mut().unwrap().push(string);
             }
-            format!("{:?}", res)
+            res
         }
         Value::Dict(dct) => {
-            let mut map = HashMap::new();
+            let mut map = SerdeJsonValue::Object(serde_json::Map::new());
             for (key, val) in dct {
-                map.insert(key, convert_value_to_string(val)?);
+                map.as_object_mut()
+                    .unwrap()
+                    .insert(String::from_utf8(key)?, convert_value_to_string(val)?);
             }
-            format!("{:?}", map)
+            map
         }
     })
 }
