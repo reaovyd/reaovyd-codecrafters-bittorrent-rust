@@ -30,7 +30,7 @@ fn main() {
 
 fn convert_value_to_string(val: Value) -> Result<String> {
     Ok(match val {
-        Value::Bytes(bytes) => String::from_utf8(bytes)?,
+        Value::Bytes(bytes) => format!("{:?}", String::from_utf8(bytes)?),
         Value::Int(num) => num.to_string(),
         Value::List(lst) => {
             let mut res = Vec::new();
