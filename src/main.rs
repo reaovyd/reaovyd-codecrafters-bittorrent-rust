@@ -19,14 +19,14 @@ fn main() {
         let decoded_value = decode_bencoded_value(encoded_value);
         if let Ok(decoded_value) = decoded_value {
             let res = match decoded_value {
-                Value::Bytes(bytes) => String::from_utf8(bytes).unwrap(),
+                Value::Bytes(bytes) => format!("\"{}\"", String::from_utf8(bytes).unwrap()),
                 Value::Int(num) => {
                     format!("{}", num)
                 }
                 Value::List(_val) => "brih".to_owned(),
                 Value::Dict(_map) => "map".to_owned(),
             };
-            println!("\"{}\"", res);
+            println!("{}", res);
         } else {
             eprintln!("Failed!");
         }
