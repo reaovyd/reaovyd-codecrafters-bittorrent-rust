@@ -8,7 +8,7 @@ use thiserror::Error;
 // #[allow(dead_code)]
 fn decode_bencoded_value(encoded_value: &str) -> Result<String> {
     let root_val = serde_bencode::from_str::<Value>(encoded_value)?;
-    convert_value_to_string(root_val)
+    Ok(convert_value_to_string(root_val)?.to_string())
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
