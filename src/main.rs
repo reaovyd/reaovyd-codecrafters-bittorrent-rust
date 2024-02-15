@@ -26,7 +26,7 @@ fn main() {
                 Value::List(_val) => "brih".to_owned(),
                 Value::Dict(_map) => "map".to_owned(),
             };
-            println!("{}", res);
+            println!("\"{}\"", res);
         } else {
             eprintln!("Failed!");
         }
