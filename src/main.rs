@@ -24,9 +24,16 @@ fn main() {
                 }
             };
             let info_hash = info.info_hash().expect("Failed to calculate info hash!");
+            let piece_length = info.piece_length();
+            let pieces = info.pieces();
             println!("Tracker URL: {}", s);
             println!("Length: {}", length);
             println!("Info Hash: {}", info_hash);
+            println!("Piece Length: {}", piece_length);
+            println!("Piece Hashes:");
+            for piece in pieces {
+                println!("{}", hex::encode(piece));
+            }
         }
         cli::Commands::Peers { torrent_file } => todo!(),
         cli::Commands::Handshake {
