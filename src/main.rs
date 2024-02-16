@@ -23,8 +23,10 @@ fn main() {
                     panic!("Expected single type files only!")
                 }
             };
+            let info_hash = info.info_hash().expect("Failed to calculate info hash!");
             println!("Tracker URL: {}", s);
             println!("Length: {}", length);
+            println!("Info Hash: {}", info_hash);
         }
         cli::Commands::Peers { torrent_file } => todo!(),
         cli::Commands::Handshake {

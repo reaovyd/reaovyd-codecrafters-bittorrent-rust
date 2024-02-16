@@ -4,12 +4,15 @@ use std::{
 };
 
 use reqwest::Url;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_bencode::value::Value;
+use sha1::{Digest, Sha1};
 use thiserror::Error;
 
 /// A bencoded dictionary that represents metadata for the actual torrent file data
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MetaInfo {
+    #[serde(skip_serializing)]
     /// URL of the central tracker to communicate with
     announce: Url,
     /// Name of the path to the file or directory that it should save the file as
@@ -18,20 +21,37 @@ pub struct MetaInfo {
     /// file case
     name: PathBuf,
     /// Maps to the number of bytes in each piece the file is split into
+    #[serde(rename(serialize = "piece length"))]
     piece_length: u64,
     /// Maps to a string whose length is a multiple of 20. Each 20 bytes is a hash value created by
     /// the SHA-1 hashing algorithm and represents a unique ID of a piece.
+    #[serde(serialize_with = "serialize_pieces")]
     pieces: Vec<[u8; 20]>,
+    #[serde(flatten)]
     file_type: FileType,
 }
 
-#[derive(Debug, Clone)]
-pub enum FileType {
-    SingleFile(u64),
-    MultiFile { files: Vec<FileInfo> },
+fn serialize_pieces<S>(pieces: &[[u8; 20]], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_bytes(&pieces.iter().flatten().copied().collect::<Vec<u8>>()[..])
+    // serializer.serialize_bytes(&pieces.iter().flatten().copied().collect::<Vec<_>>()[..])
+    // for piece in pieces {
+    //     res.push_str(&hex::encode(piece));
+    // }
+    // serializer.serialize_bytes(res.as_bytes())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum FileType {
+    #[serde(rename(serialize = "length"))]
+    SingleFile(u64),
+    #[serde(rename(serialize = "files"))]
+    MultiFile(Vec<FileInfo>),
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FileInfo {
     length: u64,
     path: PathBuf,
@@ -101,6 +121,13 @@ impl MetaInfo {
 
     pub fn file_type(&self) -> &FileType {
         &self.file_type
+    }
+
+    pub fn info_hash(&self) -> Result<String, MetaInfoError> {
+        let bytes = serde_bencode::to_bytes(self)
+            .map_err(|err| MetaInfoError::InfoHash(err.to_string()))?;
+        let digest = Sha1::digest(&bytes[..]);
+        Ok(hex::encode(digest))
     }
 }
 
@@ -223,6 +250,13 @@ impl TryFrom<&[u8]> for MetaInfo {
                                                         "path".to_string(),
                                                     ))?
                                                 {
+                                                    if path.is_empty() {
+                                                        return Err(
+                                                            MetaInfoError::Deserialization(
+                                                                "Empty path!".to_owned(),
+                                                            ),
+                                                        );
+                                                    }
                                                     let mut vec = Vec::new();
                                                     for sub in path {
                                                         if let Value::Bytes(sub) = sub {
@@ -257,7 +291,7 @@ impl TryFrom<&[u8]> for MetaInfo {
                                             ));
                                         }
                                     }
-                                    Ok(FileType::MultiFile { files: fileinfos })
+                                    Ok(FileType::MultiFile(fileinfos))
                                 } else {
                                     Err(MetaInfoError::Deserialization(
                                         "`files` did not deserialize into a list".to_string(),
@@ -311,4 +345,20 @@ pub enum MetaInfoError {
     Deserialization(String),
     #[error("Missing MetaInfoField: {0}")]
     MissingField(String),
+    #[error("InfoHash creation failed: {0}")]
+    InfoHash(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::torrent::MetaInfo;
+
+    #[test]
+    fn test_deserialize_1() {
+        let metainfo = MetaInfo::read_from_file("sample.torrent").unwrap();
+        assert_eq!(
+            "d69f91e6b2ae4c542468d1073a71d4ea13879a7f",
+            &metainfo.info_hash().unwrap()
+        );
+    }
 }
