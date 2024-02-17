@@ -27,20 +27,12 @@ pub struct MetaInfo {
     /// the SHA-1 hashing algorithm and represents a unique ID of a piece.
     #[serde(serialize_with = "serialize_pieces")]
     pieces: Vec<[u8; 20]>,
+    /// The type of the file that the torrent represents
+    ///
+    /// Represents either a single file or a multi file torrent in which it will have different
+    /// data representations
     #[serde(flatten)]
     file_type: FileType,
-}
-
-fn serialize_pieces<S>(pieces: &[[u8; 20]], serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_bytes(&pieces.iter().flatten().copied().collect::<Vec<u8>>()[..])
-    // serializer.serialize_bytes(&pieces.iter().flatten().copied().collect::<Vec<_>>()[..])
-    // for piece in pieces {
-    //     res.push_str(&hex::encode(piece));
-    // }
-    // serializer.serialize_bytes(res.as_bytes())
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -58,6 +50,7 @@ pub struct FileInfo {
 }
 
 impl FileInfo {
+    #[inline]
     fn new(length: u64, path: Vec<String>) -> Self {
         let mut buf = PathBuf::new();
         for path in path {
@@ -66,16 +59,19 @@ impl FileInfo {
         Self { length, path: buf }
     }
 
+    #[inline]
     pub fn length(&self) -> u64 {
         self.length
     }
 
+    #[inline]
     pub fn path(&self) -> &PathBuf {
         &self.path
     }
 }
 
 impl MetaInfo {
+    #[inline]
     fn new(
         announce: Url,
         name: impl AsRef<Path>,
@@ -93,47 +89,61 @@ impl MetaInfo {
         }
     }
 
+    #[inline]
     pub fn read_from_file(file: impl AsRef<Path>) -> Result<Self, MetaInfoError> {
         let bytes =
             std::fs::read(file).map_err(|err| MetaInfoError::Deserialization(err.to_string()))?;
         Self::read_from_bytes(bytes)
     }
 
+    #[inline]
     pub fn read_from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self, MetaInfoError> {
         Self::try_from(bytes.as_ref())
     }
 
+    #[inline]
+    pub fn set_announce_query(&mut self, query: &str) {
+        self.announce.set_query(Some(query))
+    }
+
+    #[inline]
     pub fn announce(&self) -> &Url {
         &self.announce
     }
 
+    #[inline]
     pub fn name(&self) -> &PathBuf {
         &self.name
     }
 
+    #[inline]
     pub fn piece_length(&self) -> u64 {
         self.piece_length
     }
 
+    #[inline]
     pub fn pieces(&self) -> &Vec<[u8; 20]> {
         &self.pieces
     }
 
+    #[inline]
     pub fn file_type(&self) -> &FileType {
         &self.file_type
     }
 
-    pub fn info_hash(&self) -> Result<String, MetaInfoError> {
+    #[inline]
+    pub fn info_hash(&self) -> Result<[u8; 20], MetaInfoError> {
         let bytes = serde_bencode::to_bytes(self)
             .map_err(|err| MetaInfoError::InfoHash(err.to_string()))?;
-        let digest = Sha1::digest(&bytes[..]);
-        Ok(hex::encode(digest))
+        let bytes = Sha1::digest(bytes);
+        Ok(<[u8; 20]>::from(bytes))
     }
 }
 
 impl TryFrom<&[u8]> for MetaInfo {
     type Error = MetaInfoError;
 
+    // TODO: rewrite large messy code
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         let value = serde_bencode::from_bytes::<Value>(value)
             .map_err(|err| MetaInfoError::Deserialization(err.to_string()))?;
@@ -209,12 +219,9 @@ impl TryFrom<&[u8]> for MetaInfo {
                     }?;
                     let file_type = {
                         match (info.get("length".as_bytes()), info.get("files".as_bytes())) {
-                            (None, None) => {
-                                // TODO
-                                Err(MetaInfoError::Deserialization(
-                                    "Found neither `length` nor `file`".to_string(),
-                                ))
-                            }
+                            (None, None) => Err(MetaInfoError::Deserialization(
+                                "Found neither `length` nor `file`".to_string(),
+                            )),
                             (Some(_), Some(_)) => Err(MetaInfoError::Deserialization(
                                 "Found both `length` and `file`!".to_string(),
                             )),
@@ -339,14 +346,29 @@ impl TryFrom<&[u8]> for MetaInfo {
     }
 }
 
+/// Error type for MetaInfo
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum MetaInfoError {
+    /// A deserialization error that occurs when trying to parse the raw bytes being read into a
+    /// MetaInfo struct
     #[error("Deserialization failed: {0}")]
     Deserialization(String),
+    /// A missing field error that occurs when a required field is not found in the raw bytes being
+    /// deserialized
     #[error("Missing MetaInfoField: {0}")]
     MissingField(String),
+    /// An error that occurs when trying to create an InfoHash from the MetaInfo struct. This error
+    /// occurs typically in one place which is when we're attempting to convert the MetaInfo struct
+    /// into bytes and then hashing it with SHA-1
     #[error("InfoHash creation failed: {0}")]
     InfoHash(String),
+}
+
+fn serialize_pieces<S>(pieces: &[[u8; 20]], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_bytes(&pieces.iter().flatten().copied().collect::<Vec<u8>>()[..])
 }
 
 #[cfg(test)]
@@ -358,7 +380,7 @@ mod tests {
         let metainfo = MetaInfo::read_from_file("sample.torrent").unwrap();
         assert_eq!(
             "d69f91e6b2ae4c542468d1073a71d4ea13879a7f",
-            &metainfo.info_hash().unwrap()
+            hex::encode(metainfo.info_hash().unwrap())
         );
     }
 }

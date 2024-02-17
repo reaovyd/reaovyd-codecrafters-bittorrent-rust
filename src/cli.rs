@@ -17,15 +17,15 @@ pub enum Commands {
         /// The serialized bencoded value to be decoded and further printed
         bencoded_value: String,
     },
-    /// Parses a torrent file
+    /// Parses a torrent file and extracts MetaInfo out of it
     Info {
-        /// The torrent file to be parsed and extracts information out of it
+        /// The torrent file that contains the metainfo to be extracted and printed
         torrent_file: PathBuf,
     },
     /// Searches for peers that have the torrent file
     Peers {
-        /// The torrent file that is parsed and is extracted to get the information required for
-        /// making a peer connection
+        /// The torrent file that is parsed and extracted from to get the information required for
+        /// searching for peers to connect to.
         torrent_file: PathBuf,
     },
     /// Sets up a TCP connection with a peer

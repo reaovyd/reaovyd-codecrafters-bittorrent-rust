@@ -1,8 +1,11 @@
 // Available if you need it!
-use bittorrent_starter_rust::torrent::{FileType, MetaInfo};
+use bittorrent_starter_rust::{
+    peers::tracker::{Compact, QueryStringBuilder},
+    torrent::{FileType, MetaInfo},
+    util,
+};
 use clap::Parser;
 mod cli;
-mod util;
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() {
@@ -28,14 +31,42 @@ fn main() {
             let pieces = info.pieces();
             println!("Tracker URL: {}", s);
             println!("Length: {}", length);
-            println!("Info Hash: {}", info_hash);
+            println!("Info Hash: {}", hex::encode(info_hash));
             println!("Piece Length: {}", piece_length);
             println!("Piece Hashes:");
             for piece in pieces {
                 println!("{}", hex::encode(piece));
             }
         }
-        cli::Commands::Peers { torrent_file } => todo!(),
+        cli::Commands::Peers { torrent_file } => {
+            let client = reqwest::blocking::Client::new();
+            let mut info =
+                MetaInfo::read_from_file(torrent_file).expect("Failed to parse metainfo from file");
+            let query = QueryStringBuilder::new(
+                &info.info_hash().unwrap(),
+                b"00112233445566778899",
+                6881,
+                0,
+                0,
+                0,
+                Compact::Compact,
+            )
+            .build();
+            info.set_announce_query(&query);
+            match client.get(info.announce().clone()).build() {
+                Ok(req) => match client.execute(req) {
+                    Ok(res) => {
+                        println!("{:?}", res);
+                    }
+                    Err(err) => {
+                        eprintln!("{}", err);
+                    }
+                },
+                Err(err) => {
+                    eprintln!("{}", err);
+                }
+            }
+        }
         cli::Commands::Handshake {
             torrent_file,
             peer_addr,
