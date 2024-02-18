@@ -5,6 +5,7 @@ use bittorrent_starter_rust::{
     util,
 };
 use clap::Parser;
+use serde_bencode::value::Value;
 mod cli;
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
@@ -56,7 +57,10 @@ fn main() {
             match client.get(info.announce().clone()).build() {
                 Ok(req) => match client.execute(req) {
                     Ok(res) => {
-                        println!("{:?}", res);
+                        println!(
+                            "{:?}",
+                            serde_bencode::from_str::<Value>(&res.text().unwrap())
+                        );
                     }
                     Err(err) => {
                         eprintln!("{}", err);
