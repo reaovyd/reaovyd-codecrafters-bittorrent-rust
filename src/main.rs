@@ -3,7 +3,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 // Available if you need it!
 use bittorrent_starter_rust::{
     peers::tracker::{Compact, QueryStringBuilder},
-    torrent::{FileType, MetaInfo},
+    torrent::{from_file, FileType},
     util,
 };
 use clap::Parser;
@@ -19,9 +19,7 @@ fn main() {
             println!("{}", decoded);
         }
         cli::Commands::Info { torrent_file } => {
-            let info =
-                MetaInfo::read_from_file(torrent_file).expect("Failed to parse metainfo from file");
-            let s = info.announce();
+            let (url, info) = from_file(torrent_file).expect("Failed to parse metainfo from file");
             let length = {
                 if let FileType::SingleFile(length) = info.file_type() {
                     *length
@@ -32,7 +30,7 @@ fn main() {
             let info_hash = info.info_hash().expect("Failed to calculate info hash!");
             let piece_length = info.piece_length();
             let pieces = info.pieces();
-            println!("Tracker URL: {}", s);
+            println!("Tracker URL: {}", url);
             println!("Length: {}", length);
             println!("Info Hash: {}", hex::encode(info_hash));
             println!("Piece Length: {}", piece_length);
@@ -43,8 +41,8 @@ fn main() {
         }
         cli::Commands::Peers { torrent_file } => {
             let client = reqwest::blocking::Client::new();
-            let mut info =
-                MetaInfo::read_from_file(torrent_file).expect("Failed to parse metainfo from file");
+            let (mut url, info) =
+                from_file(torrent_file).expect("Failed to parse metainfo from file");
             let query = QueryStringBuilder::new(
                 &info.info_hash().unwrap(),
                 b"00112233445566778899",
@@ -55,8 +53,8 @@ fn main() {
                 Compact::Compact,
             )
             .build();
-            info.set_announce_query(&query);
-            match client.get(info.announce().clone()).build() {
+            url.set_query(Some(&query));
+            match client.get(url).build() {
                 Ok(req) => match client.execute(req) {
                     Ok(res) => {
                         if let Value::Dict(value) =

@@ -145,15 +145,15 @@ fn urlencode_bytes(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::torrent::MetaInfo;
+    use crate::torrent::{from_file, MetaInfo};
 
     use super::QueryStringBuilder;
 
     #[test]
     pub fn test_1() {
-        let mut metainfo = MetaInfo::read_from_file("./sample.torrent").unwrap();
+        let mut metainfo = from_file("sample.torrent").unwrap();
         let query = QueryStringBuilder::new(
-            &metainfo.info_hash().unwrap(),
+            &metainfo.1.info_hash().unwrap(),
             b"00112233445566778899",
             6881,
             0,
