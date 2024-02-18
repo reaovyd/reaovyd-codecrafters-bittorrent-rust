@@ -1,3 +1,5 @@
+use std::net::SocketAddrV4;
+
 // Available if you need it!
 use bittorrent_starter_rust::{
     peers::tracker::{Compact, QueryStringBuilder},
@@ -57,10 +59,24 @@ fn main() {
             match client.get(info.announce().clone()).build() {
                 Ok(req) => match client.execute(req) {
                     Ok(res) => {
-                        println!(
-                            "{:?}",
-                            serde_bencode::from_str::<Value>(&res.text().unwrap())
-                        );
+                        if let Value::Dict(value) =
+                            serde_bencode::from_bytes::<Value>(&res.bytes().unwrap()).unwrap()
+                        {
+                            println!("{:?}", value.get("peers".as_bytes()).unwrap());
+                            // if let Value::List(peers) = value.get("peers".as_bytes()).unwrap() {
+                            //     for peer in peers {
+                            //         if let Value::Dict(peer) = peer {
+                            //             println!("{:?}", peer);
+                            //         } else {
+                            //             eprintln!("peer did not deserialize into a dict");
+                            //         }
+                            //     }
+                            // } else {
+                            //     eprintln!("peers did not deserialize into a list");
+                            // }
+                        } else {
+                            eprintln!("response did not deserialize into a dict");
+                        }
                     }
                     Err(err) => {
                         eprintln!("{}", err);
