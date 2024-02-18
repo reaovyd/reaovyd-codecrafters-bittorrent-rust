@@ -1,4 +1,4 @@
-use std::net::SocketAddrV4;
+use std::net::{Ipv4Addr, SocketAddrV4};
 
 // Available if you need it!
 use bittorrent_starter_rust::{
@@ -62,18 +62,20 @@ fn main() {
                         if let Value::Dict(value) =
                             serde_bencode::from_bytes::<Value>(&res.bytes().unwrap()).unwrap()
                         {
-                            println!("{:?}", value.get("peers".as_bytes()).unwrap());
-                            // if let Value::List(peers) = value.get("peers".as_bytes()).unwrap() {
-                            //     for peer in peers {
-                            //         if let Value::Dict(peer) = peer {
-                            //             println!("{:?}", peer);
-                            //         } else {
-                            //             eprintln!("peer did not deserialize into a dict");
-                            //         }
-                            //     }
-                            // } else {
-                            //     eprintln!("peers did not deserialize into a list");
-                            // }
+                            if let Value::Bytes(peers) = value.get("peers".as_bytes()).unwrap() {
+                                let chunks = peers.chunks_exact(6);
+                                for chunk in chunks {
+                                    let chunk = <[u8; 6]>::try_from(chunk).unwrap();
+                                    let ip =
+                                        Ipv4Addr::from(<[u8; 4]>::try_from(&chunk[0..4]).unwrap());
+                                    let port = <[u8; 2]>::try_from(&chunk[4..]).unwrap();
+                                    let port = (port[0] as u16) << 8 | port[1] as u16;
+                                    let res = SocketAddrV4::new(ip, port);
+                                    println!("{res}");
+                                }
+                            } else {
+                                eprintln!("peers did not deserialize into bytes");
+                            }
                         } else {
                             eprintln!("response did not deserialize into a dict");
                         }
