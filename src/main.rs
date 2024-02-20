@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
             let handshake = Handshake::from_bytes(&buf)?;
             // let peer_id = str::from_utf8(handshake.peer_id())?;
             let peer_id = handshake.peer_id();
-            println!("Peer ID: {:?}", peer_id);
+            println!("Peer ID: {}", hex::encode(peer_id));
         }
         cli::Commands::DownloadPiece {
             torrent_file: _,
