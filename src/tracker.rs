@@ -1,7 +1,12 @@
-use std::{fmt::Display, net::Ipv4Addr};
+use std::{
+    fmt::Display,
+    net::{Ipv4Addr, SocketAddrV4},
+};
 
-use reqwest::Url;
-use serde::{Deserialize, Serialize};
+use serde_bencode::value::Value;
+use thiserror::Error;
+
+use crate::ParseError;
 
 macro_rules! add_query_string {
     ($queries: ident, $key:ident, $val:expr) => {{
@@ -9,6 +14,78 @@ macro_rules! add_query_string {
         let s = $val;
         $queries.push(format!("{query}={}", s));
     }};
+}
+
+const TRACKER_RESPONSE_PEER_SIZE: usize = 6;
+
+#[derive(Debug, Clone)]
+pub struct TrackerResponse {
+    interval: u64,
+    peers: Vec<SocketAddrV4>,
+}
+
+impl TrackerResponse {
+    pub fn interval(&self) -> &u64 {
+        &self.interval
+    }
+
+    pub fn peers(&self) -> &Vec<SocketAddrV4> {
+        &self.peers
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
+        if let Value::Dict(res) = serde_bencode::from_bytes::<Value>(bytes)
+            .map_err(|err| ParseError::Deserialization(err.to_string()))?
+        {
+            let interval = {
+                if let Value::Int(interval) =
+                    res.get("interval".as_bytes())
+                        .ok_or(ParseError::MissingField(
+                            "`interval` was not found!".to_owned(),
+                        ))?
+                {
+                    Ok(u64::try_from(*interval)
+                        .map_err(|err| ParseError::Deserialization(err.to_string()))?)
+                } else {
+                    Err(ParseError::Deserialization(
+                        "`interval` did not deserialize into an integer".to_owned(),
+                    ))
+                }
+            }?;
+            let peers = {
+                if let Value::Bytes(bytes) = res.get("peers".as_bytes()).ok_or(
+                    ParseError::MissingField("`peers` was not found!".to_owned()),
+                )? {
+                    if bytes.len() % TRACKER_RESPONSE_PEER_SIZE != 0 {
+                        Err(ParseError::Deserialization("`bytes` length was not a multiple of 6 which is necessary for collecting each peer <ip>:<port>".to_owned()))
+                    } else {
+                        Ok(bytes
+                            .chunks_exact(TRACKER_RESPONSE_PEER_SIZE)
+                            .map(|chunk| {
+                                let chunk = <[u8; TRACKER_RESPONSE_PEER_SIZE]>::try_from(chunk)
+                                    .expect("Must necessarily be 6 bytes");
+                                let ip = <[u8; 4]>::try_from(&chunk[0..4])
+                                    .expect("Must necessarily be 4 bytes");
+                                let port = <[u8; 2]>::try_from(&chunk[4..])
+                                    .expect("Must necessarily be 2 bytes");
+                                let port = (port[0] as u16) << 8 | port[1] as u16;
+                                SocketAddrV4::new(Ipv4Addr::from(ip), port)
+                            })
+                            .collect::<Vec<SocketAddrV4>>())
+                    }
+                } else {
+                    Err(ParseError::Deserialization(
+                        "`peers` did not deserialize into bytes".to_owned(),
+                    ))
+                }
+            }?;
+            Ok(TrackerResponse { interval, peers })
+        } else {
+            Err(ParseError::Deserialization(
+                "Bytes did not deserialize into a dictionary".to_owned(),
+            ))
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -71,7 +148,7 @@ impl QueryStringBuilder {
         add_query_string!(queries, downloaded, self.downloaded);
         add_query_string!(queries, left, self.left);
         if let Some(event) = self.event {
-            add_query_string!(queries, event, event.to_string());
+            add_query_string!(queries, event, event);
         }
         add_query_string!(queries, compact, self.compact);
 
@@ -87,15 +164,15 @@ pub enum Event {
     Stopped,
 }
 
-impl ToString for Event {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for Event {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let event = match self {
             Event::Empty => "empty",
             Event::Started => "started",
             Event::Completed => "completed",
             Event::Stopped => "stopped",
-        }
-        .to_owned()
+        };
+        write!(f, "{}", event)
     }
 }
 
@@ -145,7 +222,7 @@ fn urlencode_bytes(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::torrent::{from_file, MetaInfo};
+    use crate::torrent::from_file;
 
     use super::QueryStringBuilder;
 

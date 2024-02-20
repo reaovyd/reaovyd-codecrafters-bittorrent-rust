@@ -1,17 +1,14 @@
-use std::net::{Ipv4Addr, SocketAddrV4};
-
-// Available if you need it!
 use bittorrent_starter_rust::{
-    peers::tracker::{Compact, QueryStringBuilder},
     torrent::{from_file, FileType},
+    tracker::{Compact, QueryStringBuilder, TrackerResponse},
     util,
 };
 use clap::Parser;
-use serde_bencode::value::Value;
+use reqwest::Client;
 mod cli;
 
-// Usage: your_bittorrent.sh decode "<encoded_value>"
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = cli::Cli::parse();
     match cli.commands {
         cli::Commands::Decode { bencoded_value } => {
@@ -40,7 +37,7 @@ fn main() {
             }
         }
         cli::Commands::Peers { torrent_file } => {
-            let client = reqwest::blocking::Client::new();
+            let client = Client::new();
             let (mut url, info) =
                 from_file(torrent_file).expect("Failed to parse metainfo from file");
             let query = QueryStringBuilder::new(
@@ -55,35 +52,17 @@ fn main() {
             .build();
             url.set_query(Some(&query));
             match client.get(url).build() {
-                Ok(req) => match client.execute(req) {
-                    Ok(res) => {
-                        if let Value::Dict(value) =
-                            serde_bencode::from_bytes::<Value>(&res.bytes().unwrap()).unwrap()
-                        {
-                            if let Value::Bytes(peers) = value.get("peers".as_bytes()).unwrap() {
-                                let chunks = peers.chunks_exact(6);
-                                for chunk in chunks {
-                                    let chunk = <[u8; 6]>::try_from(chunk).unwrap();
-                                    let ip =
-                                        Ipv4Addr::from(<[u8; 4]>::try_from(&chunk[0..4]).unwrap());
-                                    let port = <[u8; 2]>::try_from(&chunk[4..]).unwrap();
-                                    let port = (port[0] as u16) << 8 | port[1] as u16;
-                                    let res = SocketAddrV4::new(ip, port);
-                                    println!("{res}");
-                                }
-                            } else {
-                                eprintln!("peers did not deserialize into bytes");
-                            }
-                        } else {
-                            eprintln!("response did not deserialize into a dict");
-                        }
+                Ok(req) => {
+                    // Should be okay to panic here in my opinion
+                    let response = client.execute(req).await.unwrap();
+                    let bytes = response.bytes().await.unwrap();
+                    let response = TrackerResponse::from_bytes(&bytes).unwrap();
+                    for peer in response.peers() {
+                        println!("{}", peer);
                     }
-                    Err(err) => {
-                        eprintln!("{}", err);
-                    }
-                },
+                }
                 Err(err) => {
-                    eprintln!("{}", err);
+                    eprintln!("{}", err)
                 }
             }
         }

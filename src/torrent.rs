@@ -9,42 +9,43 @@ use serde_bencode::value::Value;
 use sha1::{Digest, Sha1};
 use thiserror::Error;
 
+use crate::ParseError;
+
 type UrlMetaInfo = (Url, MetaInfo);
 
 #[inline]
-pub fn from_file(file: impl AsRef<Path>) -> Result<UrlMetaInfo, MetaInfoError> {
-    let bytes =
-        std::fs::read(file).map_err(|err| MetaInfoError::Deserialization(err.to_string()))?;
+pub fn from_file(file: impl AsRef<Path>) -> Result<UrlMetaInfo, ParseError> {
+    let bytes = std::fs::read(file).map_err(|err| ParseError::Deserialization(err.to_string()))?;
     from_bytes(bytes)
 }
 
 #[inline]
-pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError> {
+pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, ParseError> {
     let value = serde_bencode::from_bytes::<Value>(bytes.as_ref())
-        .map_err(|err| MetaInfoError::Deserialization(err.to_string()))?;
+        .map_err(|err| ParseError::Deserialization(err.to_string()))?;
     if let Value::Dict(map) = value {
         if let Value::Bytes(announce) = map
             .get("announce".as_bytes())
-            .ok_or(MetaInfoError::MissingField("announce".to_string()))?
+            .ok_or(ParseError::MissingField("announce".to_string()))?
         {
             let url = str::from_utf8(announce)
-                .map_err(|utf8_err| MetaInfoError::Deserialization(utf8_err.to_string()))?;
+                .map_err(|utf8_err| ParseError::Deserialization(utf8_err.to_string()))?;
             let announce = Url::parse(url)
-                .map_err(|url_err| MetaInfoError::Deserialization(url_err.to_string()))?;
+                .map_err(|url_err| ParseError::Deserialization(url_err.to_string()))?;
             if let Value::Dict(info) = map
                 .get("info".as_bytes())
-                .ok_or(MetaInfoError::MissingField("info".to_string()))?
+                .ok_or(ParseError::MissingField("info".to_string()))?
             {
                 let name = {
                     if let Value::Bytes(name) = info
                         .get("name".as_bytes())
-                        .ok_or(MetaInfoError::MissingField("name".to_string()))?
+                        .ok_or(ParseError::MissingField("name".to_string()))?
                     {
                         Ok(String::from_utf8(name.to_vec()).map_err(|utf8_err| {
-                            MetaInfoError::Deserialization(utf8_err.to_string())
+                            ParseError::Deserialization(utf8_err.to_string())
                         })?)
                     } else {
-                        Err(MetaInfoError::Deserialization(
+                        Err(ParseError::Deserialization(
                             "`name` did not deserialize into a string/bytes".to_string(),
                         ))
                     }
@@ -52,13 +53,13 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                 let piece_length = {
                     if let Value::Int(piece_length) = info
                         .get("piece length".as_bytes())
-                        .ok_or(MetaInfoError::MissingField("piece length".to_string()))?
+                        .ok_or(ParseError::MissingField("piece length".to_string()))?
                     {
                         let piece_length = u64::try_from(*piece_length)
-                            .map_err(|err| MetaInfoError::Deserialization(err.to_string()))?;
+                            .map_err(|err| ParseError::Deserialization(err.to_string()))?;
                         Ok(piece_length)
                     } else {
-                        Err(MetaInfoError::Deserialization(
+                        Err(ParseError::Deserialization(
                             "`piece_length` did not deserialize into an integer".to_string(),
                         ))
                     }
@@ -66,10 +67,10 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                 let pieces = {
                     if let Value::Bytes(pieces) = info
                         .get("pieces".as_bytes())
-                        .ok_or(MetaInfoError::MissingField("pieces".to_string()))?
+                        .ok_or(ParseError::MissingField("pieces".to_string()))?
                     {
                         if pieces.len() % 20 != 0 || pieces.is_empty() {
-                            Err(MetaInfoError::Deserialization(
+                            Err(ParseError::Deserialization(
                                 "Length of pieces string was not a multiple of 20!".to_string(),
                             ))
                         } else {
@@ -77,7 +78,7 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                             let mut chunks_res = Vec::new();
                             for chunk in chunks {
                                 let chunk: [u8; 20] = chunk[0..20].try_into().map_err(|_| {
-                                    MetaInfoError::Deserialization(
+                                    ParseError::Deserialization(
                                         "Chunk failed to parse into a [u8; 20]".to_string(),
                                     )
                                 })?;
@@ -86,17 +87,17 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                             Ok(chunks_res)
                         }
                     } else {
-                        Err(MetaInfoError::Deserialization(
+                        Err(ParseError::Deserialization(
                             "`pieces` did not deserialize into bytes".to_string(),
                         ))
                     }
                 }?;
                 let file_type = {
                     match (info.get("length".as_bytes()), info.get("files".as_bytes())) {
-                        (None, None) => Err(MetaInfoError::Deserialization(
+                        (None, None) => Err(ParseError::Deserialization(
                             "Found neither `length` nor `file`".to_string(),
                         )),
-                        (Some(_), Some(_)) => Err(MetaInfoError::Deserialization(
+                        (Some(_), Some(_)) => Err(ParseError::Deserialization(
                             "Found both `length` and `file`!".to_string(),
                         )),
                         (None, Some(files)) => {
@@ -105,21 +106,18 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                                 for file in files {
                                     if let Value::Dict(file) = file {
                                         let length = {
-                                            if let Value::Int(length) = file
-                                                .get("length".as_bytes())
-                                                .ok_or(MetaInfoError::MissingField(
-                                                    "length".to_string(),
-                                                ))?
+                                            if let Value::Int(length) =
+                                                file.get("length".as_bytes()).ok_or(
+                                                    ParseError::MissingField("length".to_string()),
+                                                )?
                                             {
                                                 let length =
                                                     u64::try_from(*length).map_err(|err| {
-                                                        MetaInfoError::Deserialization(
-                                                            err.to_string(),
-                                                        )
+                                                        ParseError::Deserialization(err.to_string())
                                                     })?;
                                                 Ok(length)
                                             } else {
-                                                Err(MetaInfoError::Deserialization(
+                                                Err(ParseError::Deserialization(
                                                     "`length` did not deserialize into an integer"
                                                         .to_owned(),
                                                 ))
@@ -128,11 +126,11 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                                         let path = {
                                             if let Value::List(path) =
                                                 file.get("path".as_bytes()).ok_or(
-                                                    MetaInfoError::MissingField("path".to_string()),
+                                                    ParseError::MissingField("path".to_string()),
                                                 )?
                                             {
                                                 if path.is_empty() {
-                                                    return Err(MetaInfoError::Deserialization(
+                                                    return Err(ParseError::Deserialization(
                                                         "Empty path!".to_owned(),
                                                     ));
                                                 }
@@ -141,13 +139,13 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                                                     if let Value::Bytes(sub) = sub {
                                                         let sub =
                                                             str::from_utf8(sub).map_err(|err| {
-                                                                MetaInfoError::Deserialization(
+                                                                ParseError::Deserialization(
                                                                     err.to_string(),
                                                                 )
                                                             })?;
                                                         vec.push(sub.to_owned());
                                                     } else {
-                                                        return Err(MetaInfoError::Deserialization(
+                                                        return Err(ParseError::Deserialization(
                                                                 "`path` did not deserialize into a string/bytes"
                                                                     .to_string(),
                                                             ));
@@ -155,7 +153,7 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                                                 }
                                                 Ok(vec)
                                             } else {
-                                                Err(MetaInfoError::Deserialization(
+                                                Err(ParseError::Deserialization(
                                                     "`path` did not deserialize into a list"
                                                         .to_string(),
                                                 ))
@@ -163,7 +161,7 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                                         }?;
                                         fileinfos.push(FileInfo::new(length, path));
                                     } else {
-                                        return Err(MetaInfoError::Deserialization(
+                                        return Err(ParseError::Deserialization(
                                             "`file` did not deserialize into a dictionary"
                                                 .to_string(),
                                         ));
@@ -171,19 +169,18 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                                 }
                                 Ok(FileType::MultiFile(fileinfos))
                             } else {
-                                Err(MetaInfoError::Deserialization(
+                                Err(ParseError::Deserialization(
                                     "`files` did not deserialize into a list".to_string(),
                                 ))
                             }
                         }
                         (Some(length), None) => {
                             if let Value::Int(length) = length {
-                                let length = u64::try_from(*length).map_err(|err| {
-                                    MetaInfoError::Deserialization(err.to_string())
-                                })?;
+                                let length = u64::try_from(*length)
+                                    .map_err(|err| ParseError::Deserialization(err.to_string()))?;
                                 Ok(FileType::SingleFile(length))
                             } else {
-                                Err(MetaInfoError::Deserialization(
+                                Err(ParseError::Deserialization(
                                     "`length` did not deserialize into an integer".to_owned(),
                                 ))
                             }
@@ -195,17 +192,17 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, MetaInfoError>
                     MetaInfo::new(name, piece_length, pieces, file_type),
                 ))
             } else {
-                Err(MetaInfoError::Deserialization(
+                Err(ParseError::Deserialization(
                     "`info` key has been found not to deserialize into a dictionary".to_string(),
                 ))
             }
         } else {
-            Err(MetaInfoError::Deserialization(
+            Err(ParseError::Deserialization(
                 "`announce` key has been found not to deserialize into bytes/a string".to_string(),
             ))
         }
     } else {
-        Err(MetaInfoError::Deserialization(
+        Err(ParseError::Deserialization(
             "Initial Metainfo bytes format was not a map!".to_string(),
         ))
     }
@@ -318,14 +315,6 @@ impl MetaInfo {
 /// Error type for MetaInfo
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum MetaInfoError {
-    /// A deserialization error that occurs when trying to parse the raw bytes being read into a
-    /// MetaInfo struct
-    #[error("Deserialization failed: {0}")]
-    Deserialization(String),
-    /// A missing field error that occurs when a required field is not found in the raw bytes being
-    /// deserialized
-    #[error("Missing MetaInfoField: {0}")]
-    MissingField(String),
     /// An error that occurs when trying to create an InfoHash from the MetaInfo struct. This error
     /// occurs typically in one place which is when we're attempting to convert the MetaInfo struct
     /// into bytes and then hashing it with SHA-1
