@@ -13,6 +13,9 @@ use crate::ParseError;
 
 type UrlMetaInfo = (Url, MetaInfo);
 
+pub const INFO_HASH_SIZE: usize = 20;
+pub const PIECE_SIZE: usize = 20;
+
 #[inline]
 pub fn from_file(file: impl AsRef<Path>) -> Result<UrlMetaInfo, ParseError> {
     let bytes = std::fs::read(file).map_err(|err| ParseError::Deserialization(err.to_string()))?;
@@ -69,19 +72,20 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, ParseError> {
                         .get("pieces".as_bytes())
                         .ok_or(ParseError::MissingField("pieces".to_string()))?
                     {
-                        if pieces.len() % 20 != 0 || pieces.is_empty() {
+                        if pieces.len() % PIECE_SIZE != 0 || pieces.is_empty() {
                             Err(ParseError::Deserialization(
                                 "Length of pieces string was not a multiple of 20!".to_string(),
                             ))
                         } else {
-                            let chunks = pieces.chunks_exact(20);
+                            let chunks = pieces.chunks_exact(PIECE_SIZE);
                             let mut chunks_res = Vec::new();
                             for chunk in chunks {
-                                let chunk: [u8; 20] = chunk[0..20].try_into().map_err(|_| {
-                                    ParseError::Deserialization(
-                                        "Chunk failed to parse into a [u8; 20]".to_string(),
-                                    )
-                                })?;
+                                let chunk: [u8; PIECE_SIZE] =
+                                    chunk[0..PIECE_SIZE].try_into().map_err(|_| {
+                                        ParseError::Deserialization(
+                                            "Chunk failed to parse into a [u8; 20]".to_string(),
+                                        )
+                                    })?;
                                 chunks_res.push(chunk);
                             }
                             Ok(chunks_res)
@@ -271,7 +275,7 @@ impl MetaInfo {
     fn new(
         name: impl AsRef<Path>,
         piece_length: u64,
-        pieces: Vec<[u8; 20]>,
+        pieces: Vec<[u8; PIECE_SIZE]>,
         file_type: FileType,
     ) -> Self {
         let name = PathBuf::from(name.as_ref());
@@ -294,7 +298,7 @@ impl MetaInfo {
     }
 
     #[inline]
-    pub fn pieces(&self) -> &Vec<[u8; 20]> {
+    pub fn pieces(&self) -> &Vec<[u8; PIECE_SIZE]> {
         &self.pieces
     }
 
@@ -304,11 +308,11 @@ impl MetaInfo {
     }
 
     #[inline]
-    pub fn info_hash(&self) -> Result<[u8; 20], MetaInfoError> {
+    pub fn info_hash(&self) -> Result<[u8; INFO_HASH_SIZE], MetaInfoError> {
         let bytes = serde_bencode::to_bytes(self)
             .map_err(|err| MetaInfoError::InfoHash(err.to_string()))?;
         let bytes = Sha1::digest(bytes);
-        Ok(<[u8; 20]>::from(bytes))
+        Ok(<[u8; INFO_HASH_SIZE]>::from(bytes))
     }
 }
 

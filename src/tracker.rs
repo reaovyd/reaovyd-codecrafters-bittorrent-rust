@@ -4,9 +4,8 @@ use std::{
 };
 
 use serde_bencode::value::Value;
-use thiserror::Error;
 
-use crate::ParseError;
+use crate::{ParseError, INFO_HASH_SIZE};
 
 macro_rules! add_query_string {
     ($queries: ident, $key:ident, $val:expr) => {{
@@ -16,7 +15,8 @@ macro_rules! add_query_string {
     }};
 }
 
-const TRACKER_RESPONSE_PEER_SIZE: usize = 6;
+pub const TRACKER_RESPONSE_PEER_SIZE: usize = 6;
+pub const PEER_ID_SIZE: usize = 20;
 
 #[derive(Debug, Clone)]
 pub struct TrackerResponse {
@@ -103,8 +103,8 @@ pub struct QueryStringBuilder {
 
 impl QueryStringBuilder {
     pub fn new(
-        info_hash: &[u8; 20],
-        peer_id: &[u8; 20],
+        info_hash: &[u8; INFO_HASH_SIZE],
+        peer_id: &[u8; PEER_ID_SIZE],
         port: u16,
         uploaded: u64,
         downloaded: u64,
@@ -228,8 +228,8 @@ mod tests {
 
     #[test]
     pub fn test_1() {
-        let mut metainfo = from_file("sample.torrent").unwrap();
-        let query = QueryStringBuilder::new(
+        let metainfo = from_file("sample.torrent").unwrap();
+        let _query = QueryStringBuilder::new(
             &metainfo.1.info_hash().unwrap(),
             b"00112233445566778899",
             6881,
