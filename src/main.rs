@@ -7,7 +7,6 @@ use bittorrent_starter_rust::{
 };
 use clap::Parser;
 use reqwest::Client;
-use std::str;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -87,8 +86,9 @@ async fn main() -> Result<()> {
             let mut buf = [0; HANDSHAKE_SIZE];
             reader.read_exact(&mut buf).await?;
             let handshake = Handshake::from_bytes(&buf)?;
-            let peer_id = str::from_utf8(handshake.peer_id())?;
-            println!("Peer ID: {}", peer_id);
+            // let peer_id = str::from_utf8(handshake.peer_id())?;
+            let peer_id = handshake.peer_id();
+            println!("Peer ID: {:?}", peer_id);
         }
         cli::Commands::DownloadPiece {
             torrent_file: _,
