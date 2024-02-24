@@ -63,12 +63,13 @@ async fn main() -> Result<()> {
                     let response = client.execute(req).await?;
                     let bytes = response.bytes().await?;
                     let response = TrackerResponse::from_bytes(&bytes)?;
+
                     for peer in response.peers() {
                         println!("{}", peer);
                     }
                 }
                 Err(err) => {
-                    eprintln!("{}", err)
+                    eprintln!("{}", err);
                 }
             }
         }
@@ -77,24 +78,35 @@ async fn main() -> Result<()> {
             peer_addr,
         } => {
             let (_, info) = from_file(torrent_file)?;
-            let mut request_body =
-                Handshake::new(&info.info_hash()?, b"00112233445566778899").into_bytes();
+            let mut request_body = Handshake::new(&info.info_hash()?, b"00112233445566778899");
             let stream = TcpStream::connect(peer_addr).await?;
             let (mut reader, mut writer) = stream.into_split();
-            let body = &mut request_body[..];
+            let body = &mut request_body.clone().into_bytes()[..];
             writer.write_all(body).await?;
             let mut buf = [0; HANDSHAKE_SIZE];
             reader.read_exact(&mut buf).await?;
             let handshake = Handshake::from_bytes(&buf)?;
-            // let peer_id = str::from_utf8(handshake.peer_id())?;
+            assert_eq!(request_body, handshake);
             let peer_id = handshake.peer_id();
             println!("Peer ID: {}", hex::encode(peer_id));
         }
         cli::Commands::DownloadPiece {
-            torrent_file: _,
-            piece_num: _,
-            out_file: _,
-        } => todo!(),
+            torrent_file,
+            piece_num,
+            out_file,
+        } => {
+            // When a peer finishes downloading a piece and checks that the hash matches,
+            // it announces that it has that piece to all of its peers.
+            //
+            // Each peer connections two bits of state on both of the ends:
+            // 1. Choked or Not choked (in which it is unchoking)
+            //  - Choking is a notification that no data will be sent until unchoking
+            //    occurs
+            // 2. Interested or Not Interested
+            // Data transfer ONLY takes place if and only if
+            // 1. The side sending data is unchoking
+            // 2. The side receiving data is interested
+        }
     };
     Ok(())
 }

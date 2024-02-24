@@ -115,3 +115,9 @@ impl TryFrom<&[u8]> for Handshake {
         Handshake::from_bytes(value)
     }
 }
+
+impl From<Handshake> for Vec<u8> {
+    fn from(value: Handshake) -> Self {
+        value.into_bytes()
+    }
+}

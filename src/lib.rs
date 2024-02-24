@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 pub mod handshake;
+pub mod peer;
 pub mod torrent;
 pub mod tracker;
 pub mod util;
