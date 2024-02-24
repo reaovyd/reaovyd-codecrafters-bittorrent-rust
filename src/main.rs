@@ -78,7 +78,7 @@ async fn main() -> Result<()> {
             peer_addr,
         } => {
             let (_, info) = from_file(torrent_file)?;
-            let mut request_body = Handshake::new(&info.info_hash()?, b"00112233445566778899");
+            let request_body = Handshake::new(&info.info_hash()?, b"00112233445566778899");
             let stream = TcpStream::connect(peer_addr).await?;
             let (mut reader, mut writer) = stream.into_split();
             let body = &mut request_body.clone().into_bytes()[..];

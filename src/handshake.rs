@@ -10,7 +10,8 @@ pub const PROTOCOL_STRING: [u8; HANDSHAKE_LENGTH_SIZE] = *b"BitTorrent protocol"
 pub const HANDSHAKE_SIZE: usize =
     LENGTH_BYTE_SIZE + HANDSHAKE_LENGTH_SIZE + RESERVED_SIZE + INFO_HASH_SIZE + PEER_ID_SIZE;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+// TODO: If the receiving side's peer id doesn't match the one the initiating side expects, it severs the connection.
+#[derive(Debug, Clone)]
 pub struct Handshake {
     length: u8,
     protocol: [u8; HANDSHAKE_LENGTH_SIZE],
@@ -18,6 +19,17 @@ pub struct Handshake {
     infohash: [u8; INFO_HASH_SIZE],
     peer_id: [u8; PEER_ID_SIZE],
 }
+
+impl PartialEq for Handshake {
+    fn eq(&self, other: &Self) -> bool {
+        self.length == other.length
+            && self.protocol == other.protocol
+            && self.reserved == other.reserved
+            && self.infohash == other.infohash
+    }
+}
+
+impl Eq for Handshake {}
 
 impl Handshake {
     pub fn length(&self) -> &u8 {
