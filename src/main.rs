@@ -121,6 +121,7 @@ async fn main() -> Result<()> {
                 .build();
                 url.set_query(Some(&query));
                 let req = client.get(url).build()?;
+                println!("{:?}", req.url());
                 let bytes = client.execute(req).await?.bytes().await?;
                 println!("{:?}", bytes);
                 let resp = TrackerResponse::from_bytes(&bytes)?;
