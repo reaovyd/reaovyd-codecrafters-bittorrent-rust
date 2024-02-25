@@ -96,8 +96,7 @@ async fn main() -> Result<()> {
             out_file,
         } => {
             let client = Client::new();
-            let (mut url, info) =
-                from_file(torrent_file).expect("Failed to parse metainfo from file");
+            let (mut url, info) = from_file(torrent_file)?;
             let mut listener: Option<TcpListener> = None;
             for port in 6881..=6889 {
                 match TcpListener::bind(format!("127.0.0.1:{port}")).await {
@@ -122,7 +121,9 @@ async fn main() -> Result<()> {
                 .build();
                 url.set_query(Some(&query));
                 let req = client.get(url).build()?;
-                let resp = TrackerResponse::from_bytes(&client.execute(req).await?.bytes().await?)?;
+                let bytes = client.execute(req).await?.bytes().await?;
+                println!("{:?}", bytes);
+                let resp = TrackerResponse::from_bytes(&bytes)?;
                 // let peer = resp.peers().first().ok_or(anyhow!("No peer found!"))?;
                 let request_body = Handshake::new(&info.info_hash()?, b"00112233445566778899");
                 let piece_length = info.piece_length();
