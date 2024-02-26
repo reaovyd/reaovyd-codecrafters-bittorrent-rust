@@ -61,7 +61,10 @@ impl PeerMessage {
             ));
         }
         let message_id = PeerMessageId::try_from(cursor.get_u8())?;
-        if cursor.remaining() < length - 1 {}
+        if cursor.remaining()
+            < usize::try_from(length - 1)
+                .map_err(|err| PeerParseError::Deserialization(err.to_string()))?
+        {}
 
         todo!()
     }
