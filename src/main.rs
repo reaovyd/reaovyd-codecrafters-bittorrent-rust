@@ -57,20 +57,13 @@ async fn main() -> Result<()> {
             )
             .build();
             url.set_query(Some(&query));
-            match client.get(url).build() {
-                Ok(req) => {
-                    // Should be okay to panic here in my opinion
-                    let response = client.execute(req).await?;
-                    let bytes = response.bytes().await?;
-                    let response = TrackerResponse::from_bytes(&bytes)?;
+            let req = client.get(url).build()?;
+            let response = client.execute(req).await?;
+            let bytes = response.bytes().await?;
+            let response = TrackerResponse::from_bytes(&bytes)?;
 
-                    for peer in response.peers() {
-                        println!("{}", peer);
-                    }
-                }
-                Err(err) => {
-                    eprintln!("{}", err);
-                }
+            for peer in response.peers() {
+                println!("{}", peer);
             }
         }
         cli::Commands::Handshake {
@@ -115,7 +108,10 @@ async fn main() -> Result<()> {
                     addr.port(),
                     0,
                     0,
-                    0,
+                    match info.file_type() {
+                        FileType::SingleFile(file) => *file,
+                        FileType::MultiFile(_) => todo!(),
+                    },
                     Compact::Compact,
                 )
                 .build();
