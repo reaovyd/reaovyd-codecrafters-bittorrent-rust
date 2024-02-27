@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use bittorrent_starter_rust::{
     handshake::{self, Handshake},
     torrent::{from_file, FileType},
@@ -22,7 +22,8 @@ async fn main() -> Result<()> {
             println!("{}", decoded);
         }
         cli::Commands::Info { torrent_file } => {
-            let (url, info) = from_file(torrent_file).expect("Failed to parse metainfo from file");
+            let (url, info) =
+                from_file(torrent_file).context("Failed to parse metainfo from file")?;
             let length = {
                 if let FileType::SingleFile(length) = info.file_type() {
                     *length
@@ -30,7 +31,7 @@ async fn main() -> Result<()> {
                     panic!("Expected single type files only!")
                 }
             };
-            let info_hash = info.info_hash().expect("Failed to calculate info hash!");
+            let info_hash = info.info_hash().context("Failed to calculate info hash!")?;
             let piece_length = info.piece_length();
             let pieces = info.pieces();
             println!("Tracker URL: {}", url);
@@ -45,12 +46,14 @@ async fn main() -> Result<()> {
         cli::Commands::Peers { torrent_file } => {
             let client = Client::new();
             let (mut url, info) =
-                from_file(torrent_file).expect("Failed to parse metainfo from file");
+                from_file(torrent_file).context("Failed to parse metainfo from file")?;
             // TODO: Do something for multifiles
             let left_length = {
                 match info.file_type() {
                     FileType::SingleFile(length) => *length,
-                    FileType::MultiFile(_) => todo!(),
+                    FileType::MultiFile(_) => {
+                        todo!("Multifile torrent support has not been implemented yet!")
+                    }
                 }
             };
             let query = QueryStringBuilder::new(
