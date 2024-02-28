@@ -3,6 +3,8 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
 };
 
+use anyhow::Result;
+use reqwest::{Client, Url};
 use serde_bencode::value::Value;
 
 use crate::{ParseError, INFO_HASH_SIZE};
@@ -18,21 +20,34 @@ macro_rules! add_query_string {
 pub const TRACKER_RESPONSE_PEER_SIZE: usize = 6;
 pub const PEER_ID_SIZE: usize = 20;
 
+pub async fn discover_peers(
+    client: &Client,
+    info_hash: &[u8; INFO_HASH_SIZE],
+    url: Url,
+    port: u16,
+    compact: Compact,
+    peer_id: &[u8; PEER_ID_SIZE],
+    progress: (u64, u64, u64),
+) -> Result<Vec<SocketAddrV4>> {
+    let mut url = url;
+    let query_string = QueryStringBuilder::new(
+        info_hash, peer_id, port, progress.0, progress.1, progress.2, compact,
+    )
+    .build();
+    url.set_query(Some(&query_string));
+    let req = client.get(url).build()?;
+    let res = client.execute(req).await?;
+    let res = TrackerResponse::from_bytes(&res.bytes().await?)?;
+    Ok(res.peers)
+}
+
 #[derive(Debug, Clone)]
 pub struct TrackerResponse {
-    interval: u64,
-    peers: Vec<SocketAddrV4>,
+    pub interval: u64,
+    pub peers: Vec<SocketAddrV4>,
 }
 
 impl TrackerResponse {
-    pub fn interval(&self) -> &u64 {
-        &self.interval
-    }
-
-    pub fn peers(&self) -> &Vec<SocketAddrV4> {
-        &self.peers
-    }
-
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
         if let Value::Dict(res) = serde_bencode::from_bytes::<Value>(bytes)
             .map_err(|err| ParseError::Deserialization(err.to_string()))?
@@ -122,6 +137,24 @@ impl QueryStringBuilder {
             event: None,
             compact,
         }
+    }
+
+    pub fn with_uploaded(self, uploaded: u64) -> Self {
+        let mut s = self;
+        s.uploaded = uploaded;
+        s
+    }
+
+    pub fn with_downloaded(self, downloaded: u64) -> Self {
+        let mut s = self;
+        s.downloaded = downloaded;
+        s
+    }
+
+    pub fn with_left(self, left: u64) -> Self {
+        let mut s = self;
+        s.left = left;
+        s
     }
 
     pub fn with_ip(self, ip: impl Into<Ipv4Addr>) -> Self {

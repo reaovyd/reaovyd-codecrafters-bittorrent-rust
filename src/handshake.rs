@@ -1,3 +1,9 @@
+use thiserror::Error;
+use tokio::{
+    io,
+    net::{TcpStream, ToSocketAddrs},
+};
+
 use super::INFO_HASH_SIZE;
 use std::io::{Cursor, Read};
 
@@ -9,6 +15,35 @@ pub const RESERVED_SIZE: usize = 8;
 pub const PROTOCOL_STRING: [u8; HANDSHAKE_LENGTH_SIZE] = *b"BitTorrent protocol";
 pub const HANDSHAKE_SIZE: usize =
     LENGTH_BYTE_SIZE + HANDSHAKE_LENGTH_SIZE + RESERVED_SIZE + INFO_HASH_SIZE + PEER_ID_SIZE;
+
+pub async fn connect<A: ToSocketAddrs>(
+    peer: A,
+    info_hash: &[u8; INFO_HASH_SIZE],
+    peer_id: &[u8; PEER_ID_SIZE],
+) -> Result<(TcpStream, [u8; PEER_ID_SIZE]), HandshakeError> {
+    let self_hand = Handshake::new(info_hash, peer_id);
+    let mut stream = TcpStream::connect(peer)
+        .await
+        .map_err(|err| HandshakeError::Connection(err.to_string()))?;
+    let body = self_hand.as_bytes();
+    io::AsyncWriteExt::write_all(&mut stream, &body)
+        .await
+        .map_err(|err| HandshakeError::Connection(err.to_string()))?;
+
+    let mut buf = [0; HANDSHAKE_SIZE];
+    io::AsyncReadExt::read_exact(&mut stream, &mut buf)
+        .await
+        .map_err(|err| HandshakeError::Connection(err.to_string()))?;
+    let peer_hand =
+        Handshake::from_bytes(&buf).map_err(|err| HandshakeError::Connection(err.to_string()))?;
+    if self_hand != peer_hand {
+        return Err(HandshakeError::Connection(
+            "Handshake could not be validated since hands did not compromise!".to_owned(),
+        ));
+    }
+
+    Ok((stream, peer_hand.peer_id))
+}
 
 // TODO: If the receiving side's peer id doesn't match the one the initiating side expects, it severs the connection.
 #[derive(Debug, Clone)]
@@ -106,18 +141,13 @@ impl Handshake {
             peer_id,
         })
     }
-    pub fn into_bytes(self) -> Vec<u8> {
-        let mut serialized = vec![self.length];
-        let mut add_bytes = |bytes: &[u8]| {
-            for byte in bytes {
-                serialized.push(*byte)
-            }
-        };
-        add_bytes(&self.protocol[..]);
-        add_bytes(&self.reserved[..]);
-        add_bytes(&self.infohash[..]);
-        add_bytes(&self.peer_id[..]);
-        serialized
+    pub fn as_bytes(&self) -> [u8; HANDSHAKE_SIZE] {
+        let mut serialized = vec![*self.length()];
+        serialized.extend_from_slice(&self.protocol);
+        serialized.extend_from_slice(&self.reserved);
+        serialized.extend_from_slice(&self.infohash);
+        serialized.extend_from_slice(&self.peer_id);
+        <[u8; HANDSHAKE_SIZE]>::try_from(serialized).expect("Should be handshake sized...")
     }
 }
 
@@ -128,8 +158,8 @@ impl TryFrom<&[u8]> for Handshake {
     }
 }
 
-impl From<Handshake> for Vec<u8> {
-    fn from(value: Handshake) -> Self {
-        value.into_bytes()
-    }
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum HandshakeError {
+    #[error("Error connecting to the peer: {0}")]
+    Connection(String),
 }

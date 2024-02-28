@@ -11,7 +11,8 @@ use thiserror::Error;
 
 use crate::ParseError;
 
-type UrlMetaInfo = (Url, MetaInfo);
+pub type UrlMetaInfo = (Url, MetaInfo);
+pub type Piece = [u8; PIECE_SIZE];
 
 pub const INFO_HASH_SIZE: usize = 20;
 pub const PIECE_SIZE: usize = 20;
@@ -80,7 +81,7 @@ pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<UrlMetaInfo, ParseError> {
                             let chunks = pieces.chunks_exact(PIECE_SIZE);
                             let mut chunks_res = Vec::new();
                             for chunk in chunks {
-                                let chunk: [u8; PIECE_SIZE] =
+                                let chunk: Piece =
                                     chunk[0..PIECE_SIZE].try_into().map_err(|_| {
                                         ParseError::Deserialization(
                                             "Chunk failed to parse into a [u8; 20]".to_string(),
@@ -226,7 +227,7 @@ pub struct MetaInfo {
     /// Maps to a string whose length is a multiple of 20. Each 20 bytes is a hash value created by
     /// the SHA-1 hashing algorithm and represents a unique ID of a piece.
     #[serde(serialize_with = "serialize_pieces")]
-    pieces: Vec<[u8; 20]>,
+    pieces: Vec<Piece>,
     /// The type of the file that the torrent represents
     ///
     /// Represents either a single file or a multi file torrent in which it will have different
@@ -275,7 +276,7 @@ impl MetaInfo {
     fn new(
         name: impl AsRef<Path>,
         piece_length: u64,
-        pieces: Vec<[u8; PIECE_SIZE]>,
+        pieces: Vec<Piece>,
         file_type: FileType,
     ) -> Self {
         let name = PathBuf::from(name.as_ref());
@@ -298,7 +299,7 @@ impl MetaInfo {
     }
 
     #[inline]
-    pub fn pieces(&self) -> &Vec<[u8; PIECE_SIZE]> {
+    pub fn pieces(&self) -> &Vec<Piece> {
         &self.pieces
     }
 

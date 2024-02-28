@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use bittorrent_starter_rust::{
     handshake::{self, Handshake},
     torrent::{from_file, FileType},
-    tracker::{Compact, QueryStringBuilder, TrackerResponse},
+    tracker::{self, Compact, QueryStringBuilder, TrackerResponse},
     util, HANDSHAKE_SIZE,
 };
 use clap::Parser;
@@ -47,7 +47,6 @@ async fn main() -> Result<()> {
             let client = Client::new();
             let (mut url, info) =
                 from_file(torrent_file).context("Failed to parse metainfo from file")?;
-            // TODO: Do something for multifiles
             let left_length = {
                 match info.file_type() {
                     FileType::SingleFile(length) => *length,
@@ -56,23 +55,17 @@ async fn main() -> Result<()> {
                     }
                 }
             };
-            let query = QueryStringBuilder::new(
+            let peers = tracker::discover_peers(
+                &client,
                 &info.info_hash()?,
-                b"00112233445566778899",
+                url,
                 6881,
-                0,
-                0,
-                left_length,
                 Compact::Compact,
+                b"00112233445566778899",
+                (0, 0, left_length),
             )
-            .build();
-            url.set_query(Some(&query));
-            let req = client.get(url).build()?;
-            let response = client.execute(req).await?;
-            let bytes = response.bytes().await?;
-            let response = TrackerResponse::from_bytes(&bytes)?;
-
-            for peer in response.peers() {
+            .await?;
+            for peer in peers {
                 println!("{}", peer);
             }
         }
@@ -81,16 +74,8 @@ async fn main() -> Result<()> {
             peer_addr,
         } => {
             let (_, info) = from_file(torrent_file)?;
-            let request_body = Handshake::new(&info.info_hash()?, b"00112233445566778899");
-            let stream = TcpStream::connect(peer_addr).await?;
-            let (mut reader, mut writer) = stream.into_split();
-            let body = &mut request_body.clone().into_bytes()[..];
-            writer.write_all(body).await?;
-            let mut buf = [0; HANDSHAKE_SIZE];
-            reader.read_exact(&mut buf).await?;
-            let handshake = Handshake::from_bytes(&buf)?;
-            assert_eq!(request_body, handshake);
-            let peer_id = handshake.peer_id();
+            let (_, peer_id) =
+                handshake::connect(peer_addr, &info.info_hash()?, b"00112233445566778899").await?;
             println!("Peer ID: {}", hex::encode(peer_id));
         }
         cli::Commands::DownloadPiece {
