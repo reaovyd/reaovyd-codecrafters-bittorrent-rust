@@ -1,16 +1,12 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use bittorrent_starter_rust::{
-    handshake::{self, Handshake},
+    handshake::{self},
     torrent::{from_file, FileType},
-    tracker::{self, Compact, QueryStringBuilder, TrackerResponse},
-    util, HANDSHAKE_SIZE,
+    tracker::{self, Compact},
+    util,
 };
 use clap::Parser;
 use reqwest::Client;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-};
 mod cli;
 
 #[tokio::main]
@@ -45,7 +41,7 @@ async fn main() -> Result<()> {
         }
         cli::Commands::Peers { torrent_file } => {
             let client = Client::new();
-            let (mut url, info) =
+            let (url, info) =
                 from_file(torrent_file).context("Failed to parse metainfo from file")?;
             let left_length = {
                 match info.file_type() {
