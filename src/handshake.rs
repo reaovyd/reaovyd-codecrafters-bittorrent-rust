@@ -61,7 +61,6 @@ impl PartialEq for Handshake {
     fn eq(&self, other: &Self) -> bool {
         self.length == other.length
             && self.protocol == other.protocol
-            && self.reserved == other.reserved
             && self.infohash == other.infohash
     }
 }
