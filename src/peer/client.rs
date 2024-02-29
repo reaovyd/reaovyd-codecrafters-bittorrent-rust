@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use sha1::{Digest, Sha1};
 use std::{net::SocketAddrV4, path::Path};
 
 use reqwest::Client;
@@ -158,7 +159,7 @@ impl Downloader {
             pieces_downloaded,
         })
     }
-    pub async fn download_piece(&mut self, piece_num: usize) -> Result<(), DownloadError> {
+    pub async fn download_piece(&mut self, piece_num: usize) -> Result<Vec<u8>, DownloadError> {
         let piece =
             self.pieces_downloaded
                 .get_mut(piece_num)
@@ -204,9 +205,10 @@ impl Downloader {
                 reason: err.to_string(),
             })?;
         let length = piece.1;
-        println!("{:?}", length);
         let rounds = length / Downloader::BLK_SIZE;
         let bytes_left = length % Downloader::BLK_SIZE;
+        let mut vec = vec![];
+        // TODO: make this concurrent later?
         for i in 0..=rounds {
             if i == rounds && bytes_left == 0 {
                 break;
@@ -252,12 +254,23 @@ impl Downloader {
                     piece_num,
                     reason: err.to_string(),
                 })?;
-            println!("{:?}", msg.payload.len());
+            vec.extend(msg.payload);
         }
-        println!("{:?}", self.metainfo);
-
+        let bytes = Sha1::digest(&vec);
+        let actual_bytes = <[u8; INFO_HASH_SIZE]>::from(bytes);
+        let expected_bytes = self.metainfo.pieces()[piece_num];
+        if actual_bytes != expected_bytes {
+            return Err(DownloadError::InvalidPiece {
+                piece_num,
+                reason: format!(
+                    "SHA-1 Hashes did not match. Got {}, but expected {}",
+                    hex::encode(actual_bytes),
+                    hex::encode(expected_bytes)
+                ),
+            });
+        }
         piece.0 = true;
-        Ok(())
+        Ok(vec)
     }
 }
 

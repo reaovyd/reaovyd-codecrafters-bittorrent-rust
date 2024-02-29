@@ -84,7 +84,8 @@ async fn main() -> Result<()> {
             let peer_id = b"00112233445566778899";
             let mut downloader =
                 Downloader::new(&client, 6881, torrent_file, peer_id, Compact::Compact).await?;
-            downloader.download_piece(piece_num).await?;
+            let bytes = downloader.download_piece(piece_num).await?;
+            println!("{:?}", bytes);
             // let client = Client::new();
             // let (mut url, info) = from_file(torrent_file)?;
             // let mut listener: Option<TcpListener> = None;
