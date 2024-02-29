@@ -108,25 +108,24 @@ impl PeerClient {
 }
 
 #[derive(Debug)]
-pub struct Downloader<'a> {
+pub struct Downloader {
     pieces_downloaded: Vec<(bool, u64)>,
     metainfo: MetaInfo,
     info_hash: [u8; INFO_HASH_SIZE],
-    client: &'a Client,
     peer_id: [u8; PEER_ID_SIZE],
     peers: Vec<SocketAddrV4>,
 }
 
-impl<'a> Downloader<'a> {
+impl Downloader {
     /// BLK_SIZE = 2^14
     const BLK_SIZE: u64 = 1 << 14;
     pub async fn new(
-        client: &'a Client,
+        client: &Client,
         port: u16,
         torrent_file: impl AsRef<Path>,
         peer_id: &[u8; PEER_ID_SIZE],
         compact: Compact,
-    ) -> Result<Downloader<'a>> {
+    ) -> Result<Downloader> {
         let (url, info) = from_file(torrent_file)?;
         let left = match info.file_type() {
             FileType::SingleFile(left) => *left,
@@ -148,9 +147,10 @@ impl<'a> Downloader<'a> {
         let last_piece_length = left % piece_size;
         let mut pieces_downloaded = vec![(false, piece_size); piece_len];
         let piece_downloaded_len = pieces_downloaded.len();
-        pieces_downloaded[piece_downloaded_len - 1] = (false, last_piece_length);
+        if last_piece_length != 0 {
+            pieces_downloaded[piece_downloaded_len - 1] = (false, last_piece_length);
+        }
         Ok(Self {
-            client,
             peers,
             info_hash,
             peer_id: *peer_id,
@@ -172,7 +172,6 @@ impl<'a> Downloader<'a> {
                 reason: "piece has already been downloaded!".to_owned(),
             });
         }
-        piece.0 = true;
         let peer = self.peers.first().ok_or(DownloadError::InvalidPiece {
             piece_num,
             reason: "No peer found!".to_owned(),
@@ -204,6 +203,58 @@ impl<'a> Downloader<'a> {
                 piece_num,
                 reason: err.to_string(),
             })?;
+        let length = piece.1;
+        let rounds = length / Downloader::BLK_SIZE;
+        let bytes_left = length % Downloader::BLK_SIZE;
+        for i in 0..=rounds {
+            if i == rounds && bytes_left == 0 {
+                break;
+            }
+            let index = u32::try_from(piece_num)
+                .map_err(|err| DownloadError::InvalidPiece {
+                    piece_num,
+                    reason: err.to_string(),
+                })?
+                .to_be_bytes();
+            let begin = u32::try_from(i * Downloader::BLK_SIZE)
+                .map_err(|err| DownloadError::InvalidPiece {
+                    piece_num,
+                    reason: err.to_string(),
+                })?
+                .to_be_bytes();
+            let length = u32::try_from({
+                if i != rounds {
+                    Downloader::BLK_SIZE
+                } else {
+                    bytes_left
+                }
+            })
+            .map_err(|err| DownloadError::InvalidPiece {
+                piece_num,
+                reason: err.to_string(),
+            })?
+            .to_be_bytes();
+            let mut bytes = vec![];
+            bytes.extend_from_slice(&index);
+            bytes.extend_from_slice(&begin);
+            bytes.extend_from_slice(&length);
+            stream
+                .write_message(PeerMessageId::Request, &bytes)
+                .await
+                .map_err(|err| DownloadError::InvalidPiece {
+                    piece_num,
+                    reason: err.to_string(),
+                })?;
+            let msg = verify_incoming_message(&mut stream, PeerMessageId::Piece)
+                .await
+                .map_err(|err| DownloadError::InvalidPiece {
+                    piece_num,
+                    reason: err.to_string(),
+                })?;
+            println!("{:?}", msg);
+        }
+
+        piece.0 = true;
         Ok(())
     }
 }
