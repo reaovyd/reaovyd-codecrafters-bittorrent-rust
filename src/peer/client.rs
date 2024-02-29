@@ -254,8 +254,10 @@ impl Downloader {
                     piece_num,
                     reason: err.to_string(),
                 })?;
+            println!("{:?}", msg.payload);
             vec.extend(msg.payload);
         }
+        println!("{:#?}", self.metainfo.pieces());
         let bytes = Sha1::digest(&vec);
         let actual_bytes = <[u8; INFO_HASH_SIZE]>::from(bytes);
         let expected_bytes = self.metainfo.pieces()[piece_num];
