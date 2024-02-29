@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::{net::SocketAddrV4, path::Path};
 
 use reqwest::Client;
@@ -6,11 +6,13 @@ use thiserror::Error;
 
 use crate::{
     handshake,
-    peer::message::PeerBufferStream,
+    peer::message::{PeerBufferStream, PeerMessageId},
     torrent::{from_file, FileType, MetaInfo},
     tracker::{discover_peers, Compact},
     INFO_HASH_SIZE, PEER_ID_SIZE,
 };
+
+use super::message::PeerMessage;
 
 // NOTE: Currently tightly coupled with the torrent_file
 // TODO: Make it decoupled with torrent_file and users of
@@ -175,7 +177,7 @@ impl<'a> Downloader<'a> {
             piece_num,
             reason: "No peer found!".to_owned(),
         })?;
-        let (stream, peer) = handshake::connect(peer, &self.info_hash, &self.peer_id)
+        let (stream, _peer) = handshake::connect(peer, &self.info_hash, &self.peer_id)
             .await
             .map_err(|err| DownloadError::InvalidPiece {
                 piece_num,
@@ -183,15 +185,42 @@ impl<'a> Downloader<'a> {
             })?;
         let (reader, writer) = stream.into_split();
         let mut stream = PeerBufferStream::new(reader, writer);
-        let message = stream
-            .read_message()
+        verify_incoming_message(&mut stream, PeerMessageId::Bitfield)
             .await
             .map_err(|err| DownloadError::InvalidPiece {
                 piece_num,
                 reason: err.to_string(),
             })?;
-        println!("{:?}", message);
+        stream
+            .write_message(PeerMessageId::Interested, &[])
+            .await
+            .map_err(|err| DownloadError::InvalidPiece {
+                piece_num,
+                reason: err.to_string(),
+            })?;
+        verify_incoming_message(&mut stream, PeerMessageId::Unchoke)
+            .await
+            .map_err(|err| DownloadError::InvalidPiece {
+                piece_num,
+                reason: err.to_string(),
+            })?;
         Ok(())
+    }
+}
+
+async fn verify_incoming_message(
+    stream: &mut PeerBufferStream,
+    expected: PeerMessageId,
+) -> Result<PeerMessage> {
+    let message = stream.read_message().await?;
+    if message.id == expected {
+        Ok(message)
+    } else {
+        Err(anyhow!(
+            "Did not get a {} message; got {}",
+            stringify!(expected),
+            stringify!(message.id)
+        ))
     }
 }
 
