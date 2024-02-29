@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use sha1::{Digest, Sha1};
-use std::{net::SocketAddrV4, path::Path};
+use std::{mem, net::SocketAddrV4, path::Path};
 
 use reqwest::Client;
 use thiserror::Error;
@@ -207,24 +207,22 @@ impl Downloader {
         let length = piece.1;
         let rounds = length / Downloader::BLK_SIZE;
         let bytes_left = length % Downloader::BLK_SIZE;
-        let mut vec = vec![];
+        let mut piece_bytes = vec![];
         // TODO: make this concurrent later?
         for i in 0..=rounds {
             if i == rounds && bytes_left == 0 {
                 break;
             }
-            let index = u32::try_from(piece_num)
-                .map_err(|err| DownloadError::InvalidPiece {
+            let index = u32::try_from(piece_num).map_err(|err| DownloadError::InvalidPiece {
+                piece_num,
+                reason: err.to_string(),
+            })?;
+            let begin = u32::try_from(i * Downloader::BLK_SIZE).map_err(|err| {
+                DownloadError::InvalidPiece {
                     piece_num,
                     reason: err.to_string(),
-                })?
-                .to_be_bytes();
-            let begin = u32::try_from(i * Downloader::BLK_SIZE)
-                .map_err(|err| DownloadError::InvalidPiece {
-                    piece_num,
-                    reason: err.to_string(),
-                })?
-                .to_be_bytes();
+                }
+            })?;
             let length = u32::try_from({
                 if i != rounds {
                     Downloader::BLK_SIZE
@@ -238,8 +236,8 @@ impl Downloader {
             })?
             .to_be_bytes();
             let mut bytes = vec![];
-            bytes.extend_from_slice(&index);
-            bytes.extend_from_slice(&begin);
+            bytes.extend_from_slice(&index.to_be_bytes());
+            bytes.extend_from_slice(&begin.to_be_bytes());
             bytes.extend_from_slice(&length);
             stream
                 .write_message(PeerMessageId::Request, &bytes)
@@ -248,17 +246,66 @@ impl Downloader {
                     piece_num,
                     reason: err.to_string(),
                 })?;
-            let msg = verify_incoming_message(&mut stream, PeerMessageId::Piece)
+            let mut msg = verify_incoming_message(&mut stream, PeerMessageId::Piece)
                 .await
                 .map_err(|err| DownloadError::InvalidPiece {
                     piece_num,
                     reason: err.to_string(),
                 })?;
-            println!("{:?}", msg.payload);
-            vec.extend(msg.payload);
+            let actual_index = u32::from_be_bytes(
+                <[u8; mem::size_of::<u32>()]>::try_from(
+                    msg.payload.get(0..mem::size_of::<u32>()).ok_or(
+                        DownloadError::InvalidPiece {
+                            piece_num,
+                            reason: "Couldn't get resp index!".to_owned(),
+                        },
+                    )?,
+                )
+                .map_err(|err| DownloadError::InvalidPiece {
+                    piece_num,
+                    reason: err.to_string(),
+                })?,
+            );
+            if actual_index != index {
+                return Err(DownloadError::InvalidPiece {
+                    piece_num,
+                    reason: format!(
+                        "Did not download the correct index! Got {} but expected {}",
+                        actual_index, index
+                    ),
+                });
+            }
+            let actual_begin = u32::from_be_bytes(
+                <[u8; mem::size_of::<u32>()]>::try_from(
+                    msg.payload
+                        .get(mem::size_of::<u32>()..(mem::size_of::<u32>() * 2))
+                        .ok_or(DownloadError::InvalidPiece {
+                            piece_num,
+                            reason: "Couldn't get resp index!".to_owned(),
+                        })?,
+                )
+                .map_err(|err| DownloadError::InvalidPiece {
+                    piece_num,
+                    reason: err.to_string(),
+                })?,
+            );
+            if actual_begin != begin {
+                return Err(DownloadError::InvalidPiece {
+                    piece_num,
+                    reason: format!(
+                        "Did not download the correct begin bytes! Got {} but expected {}",
+                        actual_begin, begin
+                    ),
+                });
+            }
+            piece_bytes.extend(msg.payload.get((mem::size_of::<u32>() * 2)..).ok_or(
+                DownloadError::InvalidPiece {
+                    piece_num,
+                    reason: "Couldn't get the actual block!".to_owned(),
+                },
+            )?);
         }
-        println!("{:#?}", self.metainfo.pieces());
-        let bytes = Sha1::digest(&vec);
+        let bytes = Sha1::digest(&piece_bytes);
         let actual_bytes = <[u8; INFO_HASH_SIZE]>::from(bytes);
         let expected_bytes = self.metainfo.pieces()[piece_num];
         if actual_bytes != expected_bytes {
@@ -272,7 +319,7 @@ impl Downloader {
             });
         }
         piece.0 = true;
-        Ok(vec)
+        Ok(piece_bytes)
     }
 }
 
