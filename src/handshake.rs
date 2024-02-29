@@ -36,6 +36,8 @@ pub async fn connect<A: ToSocketAddrs>(
         .map_err(|err| HandshakeError::Connection(err.to_string()))?;
     let peer_hand =
         Handshake::from_bytes(&buf).map_err(|err| HandshakeError::Connection(err.to_string()))?;
+    println!("{:?}", peer_hand);
+    println!("{:?}", self_hand);
     if self_hand != peer_hand {
         return Err(HandshakeError::Connection(
             "Handshake could not be validated since hands did not compromise!".to_owned(),
