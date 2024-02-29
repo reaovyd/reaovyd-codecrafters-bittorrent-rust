@@ -1,9 +1,48 @@
-use std::{io::Cursor, mem::size_of};
-
-use bytes::Buf;
+use anyhow::Result;
 use thiserror::Error;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::tcp::{OwnedReadHalf, OwnedWriteHalf},
+};
+
+#[derive(Debug)]
+pub struct PeerBufferStream {
+    reader: OwnedReadHalf,
+    writer: OwnedWriteHalf,
+}
+
+impl PeerBufferStream {
+    pub fn new(reader: OwnedReadHalf, writer: OwnedWriteHalf) -> Self {
+        Self { reader, writer }
+    }
+
+    pub async fn read_message(&mut self) -> Result<PeerMessage> {
+        let length = self.reader.read_u32().await?;
+        let id = PeerMessageId::try_from(self.reader.read_u8().await?)?;
+        // TODO: think we need to subtract one byte here probably if message length
+        // prefix contains the id byte too in its length?
+        let mut payload = vec![0; usize::try_from(length - 1)?];
+        self.reader.read_exact(&mut payload[..]).await?;
+        Ok(PeerMessage {
+            length,
+            id,
+            payload,
+        })
+    }
+    pub async fn write_message(&mut self, id: PeerMessageId, payload: &[u8]) -> Result<()> {
+        let byte_len = std::mem::size_of::<PeerMessageId>();
+        let payload_len = payload.len();
+        let message_prefix_length = u32::try_from(byte_len + payload_len)?;
+        let mut buf = message_prefix_length.to_be_bytes().to_vec();
+        buf.push(id as u8);
+        buf.extend_from_slice(payload);
+        self.writer.write_all(&buf).await?;
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum PeerMessageId {
     Choke = 0,
     Unchoke = 1,
@@ -41,34 +80,34 @@ impl TryFrom<u8> for PeerMessageId {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerMessage {
-    length: u32,
-    id: PeerMessageId,
-    payload: Vec<u8>,
+    pub length: u32,
+    pub id: PeerMessageId,
+    pub payload: Vec<u8>,
 }
 
-impl PeerMessage {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, PeerParseError> {
-        let mut cursor = Cursor::new(bytes);
-        if cursor.remaining() < size_of::<u32>() {
-            return Err(PeerParseError::Deserialization(
-                "Not enough bytes to get the message length!".to_owned(),
-            ));
-        }
-        let length = cursor.get_u32();
-        if cursor.remaining() < size_of::<u8>() {
-            return Err(PeerParseError::Deserialization(
-                "Not enough bytes to get the message ID!".to_owned(),
-            ));
-        }
-        let message_id = PeerMessageId::try_from(cursor.get_u8())?;
-        if cursor.remaining()
-            < usize::try_from(length - 1)
-                .map_err(|err| PeerParseError::Deserialization(err.to_string()))?
-        {}
-
-        todo!()
-    }
-}
+// impl PeerMessage {
+//     pub fn from_bytes(bytes: &[u8]) -> Result<Self, PeerParseError> {
+//         let mut cursor = Cursor::new(bytes);
+//         if cursor.remaining() < size_of::<u32>() {
+//             return Err(PeerParseError::Deserialization(
+//                 "Not enough bytes to get the message length!".to_owned(),
+//             ));
+//         }
+//         let length = cursor.get_u32();
+//         if cursor.remaining() < size_of::<u8>() {
+//             return Err(PeerParseError::Deserialization(
+//                 "Not enough bytes to get the message ID!".to_owned(),
+//             ));
+//         }
+//         let message_id = PeerMessageId::try_from(cursor.get_u8())?;
+//         if cursor.remaining()
+//             < usize::try_from(length - 1)
+//                 .map_err(|err| PeerParseError::Deserialization(err.to_string()))?
+//         {}
+//
+//         todo!()
+//     }
+// }
 
 #[derive(Debug, Clone, Error)]
 pub enum PeerParseError {

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use bittorrent_starter_rust::{
     handshake::{self},
+    peer::client::Downloader,
     torrent::{from_file, FileType},
     tracker::{self, Compact},
     util,
@@ -79,6 +80,11 @@ async fn main() -> Result<()> {
             piece_num,
             out_file,
         } => {
+            let client = Client::new();
+            let peer_id = b"00112233445566778899";
+            let mut downloader =
+                Downloader::new(&client, 6881, torrent_file, peer_id, Compact::Compact).await?;
+            downloader.download_piece(piece_num).await?;
             // let client = Client::new();
             // let (mut url, info) = from_file(torrent_file)?;
             // let mut listener: Option<TcpListener> = None;

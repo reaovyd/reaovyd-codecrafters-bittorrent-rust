@@ -41,7 +41,7 @@ pub enum Commands {
         /// The torrent file that is parsed
         torrent_file: PathBuf,
         /// The piece of the torrent to download
-        piece_num: i64,
+        piece_num: usize,
         /// The output path location to the piece downloaded
         #[arg(long, short)]
         out_file: PathBuf,

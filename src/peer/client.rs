@@ -1,18 +1,14 @@
 use anyhow::Result;
-use std::{
-    cell::Cell,
-    net::{SocketAddrV4, TcpListener},
-    path::Path,
-    sync::atomic::AtomicU64,
-};
+use std::{net::SocketAddrV4, path::Path};
 
-use reqwest::{Client, Url};
+use reqwest::Client;
 use thiserror::Error;
 
 use crate::{
     handshake,
-    torrent::{self, from_file, FileType, MetaInfo, Piece},
-    tracker::{discover_peers, Compact, QueryStringBuilder, TrackerResponse},
+    peer::message::PeerBufferStream,
+    torrent::{from_file, FileType, MetaInfo},
+    tracker::{discover_peers, Compact},
     INFO_HASH_SIZE, PEER_ID_SIZE,
 };
 
@@ -24,8 +20,6 @@ pub struct PeerClient {
     peer_id: [u8; PEER_ID_SIZE],
     client: Client,
     listener_port: u16,
-    // info_hash: [u8; INFO_HASH_SIZE],
-    // url: Url,
 }
 
 impl PeerClient {
@@ -187,7 +181,17 @@ impl<'a> Downloader<'a> {
                 piece_num,
                 reason: err.to_string(),
             })?;
-        todo!()
+        let (reader, writer) = stream.into_split();
+        let mut stream = PeerBufferStream::new(reader, writer);
+        let message = stream
+            .read_message()
+            .await
+            .map_err(|err| DownloadError::InvalidPiece {
+                piece_num,
+                reason: err.to_string(),
+            })?;
+        println!("{:?}", message);
+        Ok(())
     }
 }
 
