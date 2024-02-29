@@ -253,6 +253,7 @@ impl Downloader {
                 })?;
             println!("{:?}", msg.payload.len());
         }
+        println!("{:?}", self.metainfo);
 
         piece.0 = true;
         Ok(())
