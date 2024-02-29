@@ -204,6 +204,7 @@ impl Downloader {
                 reason: err.to_string(),
             })?;
         let length = piece.1;
+        println!("{:?}", length);
         let rounds = length / Downloader::BLK_SIZE;
         let bytes_left = length % Downloader::BLK_SIZE;
         for i in 0..=rounds {
