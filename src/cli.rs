@@ -46,4 +46,11 @@ pub enum Commands {
         #[arg(long, short)]
         out_file: PathBuf,
     },
+    /// Downloads an entire file from the torrent
+    Download {
+        torrent_file: PathBuf,
+        /// The output path location to the piece downloaded
+        #[arg(long, short)]
+        out_file: PathBuf,
+    },
 }

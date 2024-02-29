@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use bittorrent_starter_rust::{
     handshake::{self},
-    peer::client::Downloader,
+    peer::client::{Downloader, PeerClient},
     torrent::{from_file, FileType},
     tracker::{self, Compact},
     util,
@@ -93,6 +93,19 @@ async fn main() -> Result<()> {
                 .open(out_file)
                 .await?;
             file.write_all(&bytes).await?;
+        }
+        cli::Commands::Download {
+            torrent_file,
+            out_file,
+        } => {
+            let peer_id = b"00112233445566778899";
+            let client = PeerClient::new(Client::new(), *peer_id);
+            client.download(&torrent_file, &out_file).await?;
+            println!(
+                "Downloaded {} to {}",
+                torrent_file.file_name().unwrap().to_str().unwrap(),
+                out_file.file_name().unwrap().to_str().unwrap()
+            );
         }
     };
     Ok(())

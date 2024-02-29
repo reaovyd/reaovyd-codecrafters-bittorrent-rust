@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use sha1::{Digest, Sha1};
 use std::{mem, net::SocketAddrV4, path::Path};
+use tokio::{fs::OpenOptions, io::AsyncWriteExt};
 
 use reqwest::Client;
 use thiserror::Error;
@@ -33,79 +34,34 @@ impl PeerClient {
             listener_port: 6881,
         }
     }
-    pub async fn download(&self, torrent_file: impl AsRef<Path>) {
-        // 1. Need to spawn a downloader for that torrent_file
+    pub async fn download(
+        &self,
+        torrent_file: impl AsRef<Path>,
+        out_file: impl AsRef<Path>,
+    ) -> Result<()> {
+        let mut downloader = Downloader::new(
+            &self.client,
+            self.listener_port,
+            torrent_file,
+            &self.peer_id,
+            Compact::Compact,
+        )
+        .await?;
+        let pieces_len = downloader.pieces_downloaded.len();
+        // TODO: optimize by writing to hard disk since this can store nearly like 5gb in ram lol
+        let mut final_output = vec![];
+        for piece_idx in 0..pieces_len {
+            let bytes = downloader.download_piece(piece_idx).await?;
+            final_output.extend(bytes);
+        }
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(out_file)
+            .await?;
+        file.write_all(&final_output).await?;
+        Ok(())
     }
-    // pub fn new(
-    //     client: Client,
-    //     peer_id: &[u8; PEER_ID_SIZE],
-    //     torrent_file: impl AsRef<Path>,
-    // ) -> Result<Self, PeerClientError> {
-    //     // TODO: Something from async to sync bridge code since I'm having a TcpListener on
-    //     // another port
-
-    //     let port = 6881;
-    //     let (mut url, metainfo) =
-    //         from_file(torrent_file).map_err(|err| PeerClientError::Connection(err.to_string()))?;
-    //     let left = match metainfo.file_type() {
-    //         crate::torrent::FileType::SingleFile(len) => *len,
-    //         crate::torrent::FileType::MultiFile(_) => {
-    //             todo!("Multifile support is not implemented yet!")
-    //         }
-    //     };
-    //     let info_hash = metainfo
-    //         .info_hash()
-    //         .map_err(|err| PeerClientError::Connection(err.to_string()))?;
-    //     let init_query_string =
-    //         QueryStringBuilder::new(&info_hash, peer_id, port, 0, 0, left, Compact::Compact)
-    //             .build();
-    //     url.set_query(Some(&init_query_string));
-    //     todo!()
-    // }
-    // pub async fn discover_new_peer(
-    //     &mut self,
-    //     uploaded: u64,
-    //     downloaded: u64,
-    //     left: u64,
-    //     compact: Compact,
-    // ) -> Result<SocketAddrV4, PeerClientError> {
-    //     // TODO: can we avoid cloning here?
-    //     let mut url = self.url.clone();
-    //     let query_string = QueryStringBuilder::new(
-    //         &self.info_hash,
-    //         &self.peer_id,
-    //         self.listener_port,
-    //         uploaded,
-    //         downloaded,
-    //         left,
-    //         compact,
-    //     )
-    //     .build();
-    //     url.set_query(Some(&query_string));
-    //     let req = self
-    //         .client
-    //         .get(url)
-    //         .build()
-    //         .map_err(|err| PeerClientError::PeerDiscovery(err.to_string()))?;
-    //     let resp = self
-    //         .client
-    //         .execute(req)
-    //         .await
-    //         .map_err(|err| PeerClientError::PeerDiscovery(err.to_string()))?
-    //         .bytes()
-    //         .await
-    //         .map_err(|err| PeerClientError::PeerDiscovery(err.to_string()))?;
-    //     let resp = TrackerResponse::from_bytes(&resp)
-    //         .map_err(|err| PeerClientError::PeerDiscovery(err.to_string()))?;
-    //     let peer = resp
-    //         .peers()
-    //         .first()
-    //         .ok_or(PeerClientError::PeerDiscovery(
-    //             "Couldn't find a peer!".to_owned(),
-    //         ))?
-    //         .to_owned();
-    //     Ok(peer)
-    // }
 }
 
 #[derive(Debug)]
@@ -246,7 +202,7 @@ impl Downloader {
                     piece_num,
                     reason: err.to_string(),
                 })?;
-            let mut msg = verify_incoming_message(&mut stream, PeerMessageId::Piece)
+            let msg = verify_incoming_message(&mut stream, PeerMessageId::Piece)
                 .await
                 .map_err(|err| DownloadError::InvalidPiece {
                     piece_num,
