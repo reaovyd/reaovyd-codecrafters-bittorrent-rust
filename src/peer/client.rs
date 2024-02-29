@@ -251,7 +251,7 @@ impl Downloader {
                     piece_num,
                     reason: err.to_string(),
                 })?;
-            println!("{:?}", msg);
+            println!("{:?}", msg.payload.len());
         }
 
         piece.0 = true;
